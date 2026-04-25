@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ExitAI — Crisis Response Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: sans-serif; background: #111; color: #e5e5e5; }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+  .topbar { background: #1a1a1a; border-bottom: 1px solid #2a2a2a; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-size: 14px; font-weight: 500; }
+  .badge-normal { background: #14532d; color: #4ade80; font-size: 11px; padding: 2px 10px; border-radius: 20px; }
+  .badge-alert { background: #7f1d1d; color: #f87171; font-size: 11px; padding: 2px 10px; border-radius: 20px; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .main { display: grid; grid-template-columns: 1fr 300px; gap: 12px; padding: 12px; flex: 1; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px; }
+  .card-title { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 12px; }
+  canvas { border-radius: 8px; width: 100%; display: block; }
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { background: #222; border-radius: 8px; padding: 10px 14px; }
+  .stat-label { font-size: 11px; color: #888; }
+  .stat-val { font-size: 22px; font-weight: 500; margin-top: 2px; }
+  .right-col { display: flex; flex-direction: column; gap: 12px; }
+  .trigger-btn { width: 100%; padding: 12px; border-radius: 8px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; transition: all 0.2s; }
+  .trigger-btn.armed { background: #7f1d1d; color: #f87171; border: 1px solid #991b1b; }
+  .trigger-btn.normal { background: #222; color: #888; border: 1px solid #333; cursor: default; }
+  .exit-list { display: flex; flex-direction: column; gap: 8px; }
+  .exit-item { display: flex; align-items: center; padding: 10px 12px; border-radius: 8px; border: 1px solid #2a2a2a; }
+  .exit-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+  .exit-name { font-size: 13px; flex: 1; }
+  .exit-load { font-size: 12px; color: #888; }
+  .exit-arrow { font-size: 11px; font-weight: 500; margin-left: 6px; }
+  .ai-box { background: #222; border-radius: 8px; padding: 12px; min-height: 80px; }
+  .ai-label { font-size: 11px; color: #888; margin-bottom: 6px; }
+  .ai-text { font-size: 13px; line-height: 1.5; color: #e5e5e5; }
+  .dot-anim span { animation: blink 1.2s infinite; display: inline-block; }
+  .dot-anim span:nth-child(2) { animation-delay: 0.2s; }
+  .dot-anim span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+  .zone-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+  .zone-btn { font-size: 12px; padding: 6px 12px; border-radius: 20px; border: 1px solid #333; background: transparent; cursor: pointer; color: #aaa; transition: all 0.15s; }
+  .zone-btn.active { background: #1e3a5f; color: #60a5fa; border-color: #2563eb; }
+  .reset-btn { font-size: 12px; color: #888; background: none; border: none; cursor: pointer; text-decoration: underline; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="logo">ExitAI — Manager Dashboard</span>
+      <span id="status-badge" class="badge-normal">All Clear</span>
+    </div>
+    <span style="font-size:11px;color:#666" id="clock"></span>
+  </div>
+
+  <div class="main">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="stats-row">
+        <div class="stat"><div class="stat-label">Occupants inside</div><div class="stat-val" id="stat-people">142</div></div>
+        <div class="stat"><div class="stat-label">Active exits</div><div class="stat-val" id="stat-exits">4</div></div>
+        <div class="stat"><div class="stat-label">Est. clear time</div><div class="stat-val" id="stat-time">—</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Floor 2 — Live Occupancy Map</div>
+        <canvas id="floorCanvas" height="320"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">Fire zone trigger</div>
+        <div class="zone-selector">
+          <button class="zone-btn active" onclick="selectZone('North Wing')">North Wing</button>
+          <button class="zone-btn" onclick="selectZone('South Wing')">South Wing</button>
+          <button class="zone-btn" onclick="selectZone('East Corridor')">East Corridor</button>
+          <button class="zone-btn" onclick="selectZone('Lobby')">Lobby</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="right-col">
+      <div class="card">
+        <div class="card-title">Emergency Control</div>
+        <button class="trigger-btn armed" id="triggerBtn" onclick="triggerEmergency()">Trigger Emergency</button>
+        <button class="reset-btn" id="resetBtn" onclick="resetSystem()" style="display:none">Reset system</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Exit Routing Status</div>
+        <div class="exit-list" id="exitList"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">AI Routing Recommendation</div>
+        <div class="ai-box">
+          <div class="ai-label">Gemini AI — real-time analysis</div>
+          <div class="ai-text" id="aiText">Awaiting emergency trigger to generate routing plan.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let emergency = false;
+let selectedZone = 'North Wing';
+let aiInterval = null;
+
+const exits = [
+  { id:'A', name:'Exit A — North', load:28, max:60 },
+  { id:'B', name:'Exit B — South', load:19, max:60 },
+  { id:'C', name:'Exit C — East',  load:12, max:40 },
+  { id:'D', name:'Exit D — West',  load:8,  max:40 },
+];
+
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+setInterval(updateClock,1000); updateClock();
+
+const canvas = document.getElementById('floorCanvas');
+const ctx = canvas.getContext('2d');
+
+function getExitColor(id) {
+  const e = exits.find(x=>x.id===id);
+  const p = e.load/e.max;
+  return p>0.8?'#ef4444':p>0.5?'#f59e0b':'#22c55e';
+}
+
+function drawFloor() {
+  const W = canvas.offsetWidth; canvas.width=W; canvas.height=320;
+  const w=W, h=320;
+  ctx.clearRect(0,0,w,h);
+
+  ctx.fillStyle = emergency?'rgba(239,68,68,0.05)':'rgba(255,255,255,0.02)';
+  ctx.beginPath(); ctx.roundRect(4,4,w-8,h-8,8); ctx.fill();
+
+  const rooms = [
+    {x:20,y:20,w:150,h:110,label:'Conference Room A',people:24},
+    {x:190,y:20,w:130,h:110,label:'Open Office',people:38},
+    {x:340,y:20,w:w-360,h:110,label:'Meeting Room B',people:12},
+    {x:20,y:150,w:w-40,h:70,label:'Main Corridor',people:18},
+    {x:20,y:240,w:150,h:68,label:'Cafeteria',people:32},
+    {x:190,y:240,w:130,h:68,label:'Reception',people:11},
+    {x:340,y:240,w:w-360,h:68,label:'Server Room',people:7},
+  ];
+
+  rooms.forEach(r=>{
+    ctx.fillStyle='rgba(255,255,255,0.04)';
+    ctx.strokeStyle='rgba(255,255,255,0.12)';
+    ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.roundRect(r.x,r.y,r.w,r.h,4); ctx.fill(); ctx.stroke();
+    const seed=r.x*7+r.y;
+    for(let i=0;i<Math.min(r.people,12);i++){
+      const px=r.x+10+((seed*31+i*17)%(r.w-20));
+      const py=r.y+16+((seed*13+i*23)%(r.h-26));
+      ctx.fillStyle=emergency?'rgba(239,68,68,0.8)':'rgba(99,102,241,0.7)';
+      ctx.beginPath(); ctx.arc(px,py,3,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle='rgba(180,180,180,0.6)';
+    ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(r.label,r.x+r.w/2,r.y+r.h-10);
+  });
+
+  if(emergency){
+    ctx.fillStyle='rgba(239,68,68,0.12)';
+    ctx.strokeStyle='rgba(239,68,68,0.7)';
+    ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    if(selectedZone==='North Wing'){ctx.beginPath();ctx.roundRect(16,16,w-32,120,6);ctx.fill();ctx.stroke();}
+    else if(selectedZone==='South Wing'){ctx.beginPath();ctx.roundRect(16,232,w-32,82,6);ctx.fill();ctx.stroke();}
+    else if(selectedZone==='East Corridor'){ctx.beginPath();ctx.roundRect(w-170,16,158,w,6);ctx.fill();ctx.stroke();}
+    else{ctx.beginPath();ctx.roundRect(16,16,168,w,6);ctx.fill();ctx.stroke();}
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(239,68,68,0.9)';ctx.font='bold 10px sans-serif';ctx.textAlign='left';
+    ctx.fillText('FIRE DETECTED: '+selectedZone,24,14);
+
+    // Route lines
+    const centers=[{x:95,y:75},{x:255,y:75},{x:w-80,y:75},{x:w/2,y:185},{x:95,y:274},{x:255,y:274},{x:w-80,y:274}];
+    const tgts={A:{x:w/2,y:6},B:{x:w/2,y:h-6},C:{x:w-6,y:h/2},D:{x:6,y:h/2}};
+    centers.forEach((c,i)=>{
+      const best=exits.filter(e=>true).sort((a,b)=>a.load/a.max-b.load/b.max)[i%2];
+      const t=tgts[best.id];
+      ctx.strokeStyle='rgba(99,102,241,0.35)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.moveTo(c.x,c.y);ctx.lineTo(t.x,t.y);ctx.stroke();ctx.setLineDash([]);
+    });
+  }
+
+  // Exit labels
+  [{x:w/2-24,y:2,id:'A'},{x:w/2-24,y:h-14,id:'B'},{x:w-54,y:h/2-6,id:'C'},{x:2,y:h/2-6,id:'D'}].forEach(ep=>{
+    const col=emergency?getExitColor(ep.id):'#22c55e';
+    ctx.fillStyle='rgba(0,0,0,0.5)';ctx.beginPath();ctx.roundRect(ep.x-2,ep.y,54,14,3);ctx.fill();
+    ctx.fillStyle=col;ctx.font='bold 9px sans-serif';ctx.textAlign='left';
+    ctx.fillText('EXIT '+ep.id,ep.x+2,ep.y+10);
+  });
+}
+
+function renderExits(){
+  document.getElementById('exitList').innerHTML=exits.map(e=>{
+    const p=Math.round(e.load/e.max*100);
+    const col=p>80?'#ef4444':p>50?'#f59e0b':'#22c55e';
+    const arrow=emergency?(p<50?'→ Route here':'→ Avoid'):'';
+    return `<div class="exit-item">
+      <div class="exit-dot" style="background:${col}"></div>
+      <span class="exit-name">${e.name}</span>
+      <span class="exit-load">${p}%</span>
+      ${emergency?`<span class="exit-arrow" style="color:${col}">${arrow}</span>`:''}
+    </div>`;
+  }).join('');
+}
+
+function selectZone(z){
+  selectedZone=z;
+  document.querySelectorAll('.zone-btn').forEach(b=>b.classList.toggle('active',b.textContent===z));
+  if(emergency) drawFloor();
+}
+
+async function triggerEmergency(){
+  if(emergency) return;
+  emergency=true;
+  document.getElementById('status-badge').className='badge-alert';
+  document.getElementById('status-badge').textContent='EMERGENCY';
+  document.getElementById('triggerBtn').textContent='Emergency Active';
+  document.getElementById('triggerBtn').className='trigger-btn normal';
+  document.getElementById('triggerBtn').disabled=true;
+  document.getElementById('resetBtn').style.display='block';
+  document.getElementById('stat-time').textContent='~4 min';
+  exits[0].load=48;exits[1].load=12;exits[2].load=8;exits[3].load=22;
+  renderExits(); drawFloor();
+  await getAI();
+  aiInterval=setInterval(()=>{
+    exits.forEach(e=>{e.load=Math.max(0,Math.min(e.max,e.load+Math.floor(Math.random()*6-2)));});
+    renderExits(); drawFloor();
+  },3000);
+}
+
+async function getAI(){
+  const el=document.getElementById('aiText');
+  el.innerHTML='<span style="color:#888">Analyzing<span class="dot-anim"><span>.</span><span>.</span><span>.</span></span></span>';
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:120,
+        messages:[{role:"user",content:`Emergency evacuation AI. Fire in: ${selectedZone}. 142 occupants. Exit loads: A-North ${exits[0].load}/${exits[0].max}, B-South ${exits[1].load}/${exits[1].max}, C-East ${exits[2].load}/${exits[2].max}, D-West ${exits[3].load}/${exits[3].max}. Give 2-sentence staff routing instruction. Be direct, specific. No intro.`}]
+      })
+    });
+    const data=await res.json();
+    el.textContent=data.content?.find(b=>b.type==='text')?.text||'Route away from fire zone. Use least loaded exits.';
+  }catch(e){
+    el.textContent=`Prioritize Exit ${exits.sort((a,b)=>a.load/a.max-b.load/b.max)[0].id} and Exit ${exits.sort((a,b)=>a.load/a.max-b.load/b.max)[1].id} — lowest load. Direct all ${selectedZone} occupants away from fire zone immediately.`;
+  }
+}
+
+function resetSystem(){
+  emergency=false; clearInterval(aiInterval);
+  exits[0].load=28;exits[1].load=19;exits[2].load=12;exits[3].load=8;
+  document.getElementById('status-badge').className='badge-normal';
+  document.getElementById('status-badge').textContent='All Clear';
+  document.getElementById('triggerBtn').textContent='Trigger Emergency';
+  document.getElementById('triggerBtn').className='trigger-btn armed';
+  document.getElementById('triggerBtn').disabled=false;
+  document.getElementById('resetBtn').style.display='none';
+  document.getElementById('stat-time').textContent='—';
+  document.getElementById('aiText').textContent='Awaiting emergency trigger to generate routing plan.';
+  renderExits(); drawFloor();
+}
+
+renderExits();
+window.addEventListener('resize',drawFloor);
+setTimeout(drawFloor,100);
+setInterval(drawFloor,3000);
+</script>
+</body>
+</html>
